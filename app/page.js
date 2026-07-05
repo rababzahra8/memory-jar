@@ -526,14 +526,36 @@ function App() {
   const jarRef = useRef(null)
   const dragState = useRef({ dragging: false, lastX: 0, lastY: 0 })
 
-  // Load from localStorage
+  // Load memories: try Supabase first, fall back to localStorage cache
   useEffect(() => {
+    let cancelled = false
+    // 1) instant local cache render
     try {
       const saved = JSON.parse(localStorage.getItem('memoryJar') || '[]')
       if (Array.isArray(saved)) setMemories(saved)
     } catch {}
+    // 2) authoritative Supabase load
+    ;(async () => {
+      try {
+        const res = await fetch('/api/memories')
+        const body = await res.json()
+        if (cancelled) return
+        if (Array.isArray(body?.memories) && body.supabase) {
+          const normalized = body.memories.map(m => ({
+            id: m.id,
+            text: m.text,
+            type: m.type || 'secret',
+            author: m.author,
+            createdAt: m.created_at ? new Date(m.created_at).getTime() : Date.now(),
+          }))
+          setMemories(normalized)
+        }
+      } catch {}
+    })()
+    return () => { cancelled = true }
   }, [])
 
+  // keep a localStorage cache mirror so returning visitors see stars instantly
   useEffect(() => {
     localStorage.setItem('memoryJar', JSON.stringify(memories))
   }, [memories])
@@ -562,13 +584,16 @@ function App() {
 
   const dropMemory = () => {
     if (!text.trim()) return
+    const tempId = crypto.randomUUID()
     const m = {
-      id: crypto.randomUUID(),
+      id: tempId,
       text: text.trim(),
       type,
       author: author.trim() || null,
       createdAt: Date.now(),
     }
+    const payload = { text: m.text, type: m.type, author: m.author }
+
     // Animate dropping star from textarea to jar
     setDroppingStar({ id: m.id, color: typeMeta(type).color })
     setText('')
@@ -578,10 +603,34 @@ function App() {
     setTimeout(() => {
       setMemories(prev => [...prev, m])
       setDroppingStar(null)
-      // sparkle at jar top
       const rect = jarRef.current?.getBoundingClientRect()
-      if (rect) emitSparkles(rect.left + rect.width / 2, rect.top + 60, typeMeta(type).color, 18)
+      if (rect) emitSparkles(rect.left + rect.width / 2, rect.top + 60, typeMeta(m.type).color, 18)
     }, 1400)
+
+    // Persist to Supabase in background; reconcile id
+    ;(async () => {
+      try {
+        const res = await fetch('/api/memories', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        })
+        if (!res.ok) return
+        const body = await res.json()
+        const saved = body?.memory
+        if (saved?.id) {
+          setMemories(prev => prev.map(x => x.id === tempId ? {
+            id: saved.id,
+            text: saved.text,
+            type: saved.type,
+            author: saved.author,
+            createdAt: saved.created_at ? new Date(saved.created_at).getTime() : Date.now(),
+          } : x))
+        }
+      } catch {
+        // offline / no supabase configured -> keep local copy silently
+      }
+    })()
   }
 
   const shakeJar = (intensity = 8) => {
@@ -673,14 +722,14 @@ function App() {
                 className="w-full rounded-xl bg-black/30 border border-white/10 focus:border-purple-400/60 focus:ring-2 focus:ring-purple-400/30 outline-none px-4 py-3 text-slate-100 placeholder:text-slate-400/60 resize-none transition"
               />
 
-              {type === 'named' && (
-                <input
-                  value={author}
-                  onChange={(e) => setAuthor(e.target.value)}
-                  placeholder="Signed by..."
-                  className="mt-3 w-full rounded-xl bg-black/30 border border-white/10 focus:border-pink-400/60 focus:ring-2 focus:ring-pink-400/30 outline-none px-4 py-2.5 text-slate-100 placeholder:text-slate-400/60"
-                />
-              )}
+              {/* Optional signature - available for every memory type */}
+              <input
+                value={author}
+                onChange={(e) => setAuthor(e.target.value)}
+                placeholder="Name (optional)"
+                maxLength={80}
+                className="mt-3 w-full rounded-xl bg-black/30 border border-white/10 focus:border-pink-400/60 focus:ring-2 focus:ring-pink-400/30 outline-none px-4 py-2.5 text-slate-100 placeholder:text-slate-400/60"
+              />
 
               <div className="mt-4">
                 <div className="text-slate-200/80 text-xs mb-2">Type of memory</div>
