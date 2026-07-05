@@ -64,18 +64,30 @@ function GalaxyBackground() {
       { x: w * 0.92, y: h * 0.62, r: Math.max(w, h) * 0.22, s:  0.9, rot: 0 },
     ]
 
-    // Bright golden stars (fixed positions with halos)
-    const goldStars = Array.from({ length: 11 }, () => ({
-      x: Math.random() * w,
-      y: Math.random() * h * 0.6,
-      r: 4 + Math.random() * 4,
-      tw: Math.random() * Math.PI * 2,
-      twSpeed: 0.012 + Math.random() * 0.02,
-    }))
-    // ensure a couple near the top for the "big" starry-night stars
-    goldStars[0] = { x: w * 0.18, y: h * 0.22, r: 7, tw: 0, twSpeed: 0.015 }
-    goldStars[1] = { x: w * 0.42, y: h * 0.14, r: 6, tw: 1, twSpeed: 0.018 }
-    goldStars[2] = { x: w * 0.62, y: h * 0.20, r: 5.5, tw: 2, twSpeed: 0.02 }
+    // Bright golden stars (spread across the whole sky with halos)
+    const STAR_COUNT = 16
+    // Use a poisson-ish grid to spread stars evenly
+    const gridCols = 4
+    const gridRows = 4
+    const cellW = w / gridCols
+    const cellH = h / gridRows
+    const goldStars = []
+    for (let gy = 0; gy < gridRows; gy++) {
+      for (let gx = 0; gx < gridCols; gx++) {
+        // one star per cell, jittered
+        goldStars.push({
+          x: gx * cellW + cellW * (0.2 + Math.random() * 0.6),
+          y: gy * cellH + cellH * (0.2 + Math.random() * 0.6),
+          r: 4 + Math.random() * 4,
+          tw: Math.random() * Math.PI * 2,
+          twSpeed: 0.010 + Math.random() * 0.02,
+        })
+      }
+    }
+    // ensure a couple of iconic big stars in the upper band
+    goldStars[1] = { x: w * 0.15, y: h * 0.18, r: 7, tw: 0, twSpeed: 0.015 }
+    goldStars[2] = { x: w * 0.45, y: h * 0.12, r: 6, tw: 1, twSpeed: 0.018 }
+    goldStars[3] = { x: w * 0.62, y: h * 0.24, r: 5.5, tw: 2, twSpeed: 0.02 }
 
     // moon position (top-right)
     const moon = { x: w * 0.85, y: h * 0.17, r: 46 }
@@ -611,10 +623,15 @@ function App() {
     <div className="relative min-h-screen w-full overflow-hidden select-none">
       <GalaxyBackground />
 
-      {/* Subtle warm gold vignette to enhance painterly feel */}
+      {/* Subtle warm gold vignette + gentle darkening for text legibility */}
       <div className="fixed inset-0 z-0 pointer-events-none"
         style={{
           background: 'radial-gradient(ellipse at 85% 17%, rgba(255, 210, 120, 0.10) 0%, transparent 40%), radial-gradient(ellipse at 20% 80%, rgba(70, 40, 130, 0.10) 0%, transparent 55%)',
+        }}
+      />
+      <div className="fixed inset-0 z-0 pointer-events-none"
+        style={{
+          background: 'radial-gradient(ellipse at 50% 50%, rgba(4, 8, 26, 0.0) 20%, rgba(4, 8, 26, 0.35) 70%, rgba(4, 8, 26, 0.6) 100%)',
         }}
       />
 
@@ -633,7 +650,7 @@ function App() {
               &#x2B50; Digital Memory Jar
             </span>
           </h1>
-          <p className="text-slate-300/80 mt-2 italic text-sm md:text-base">
+          <p className="text-slate-100 mt-2 italic text-sm md:text-base text-safe">
             &ldquo;Leave a little piece of your heart among the stars.&rdquo;
           </p>
         </motion.header>
@@ -697,12 +714,12 @@ function App() {
                 </span>
               </button>
 
-              <div className="mt-3 text-center text-xs text-slate-400">
+              <div className="mt-3 text-center text-xs text-slate-100 text-safe">
                 {memories.length} {memories.length === 1 ? 'memory' : 'memories'} in the jar
                 {memories.length > 0 && (
                   <>
                     &nbsp;&middot;&nbsp;
-                    <button onClick={pickRandom} className="underline decoration-dotted hover:text-purple-300">
+                    <button onClick={pickRandom} className="underline decoration-dotted hover:text-amber-200">
                       draw one
                     </button>
                   </>
@@ -710,7 +727,7 @@ function App() {
               </div>
             </div>
 
-            <p className="text-center text-[11px] text-slate-500 mt-3">
+            <p className="text-center text-[11px] text-slate-100 mt-3 text-safe">
               Tip: click or drag the jar to shake it &#x2728;
             </p>
           </motion.div>
@@ -737,7 +754,7 @@ function App() {
           </motion.div>
         </div>
 
-        <div className="mt-6 text-center text-xs text-slate-500">
+        <div className="mt-6 text-center text-xs text-slate-200 text-safe">
           made with &#x2728; &middot; your memories live only on this device
         </div>
       </div>
