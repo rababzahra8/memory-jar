@@ -14,7 +14,10 @@ const MEMORY_TYPES = [
 
 const typeMeta = (id) => MEMORY_TYPES.find(t => t.id === id) || MEMORY_TYPES[0]
 
-// ---------- Galaxy Background (Canvas) ----------
+// ---------- Van Gogh Starry Night Background (Canvas) ----------
+// A living painting: swirling vortices push brushstroke particles along a
+// flow field, leaving painterly trails. Golden stars, a luminous moon,
+// and shooting stars complete the "Starry Night"-inspired scene.
 function GalaxyBackground() {
   const canvasRef = useRef(null)
   const mouseRef = useRef({ x: 0, y: 0 })
@@ -22,43 +25,114 @@ function GalaxyBackground() {
   useEffect(() => {
     const canvas = canvasRef.current
     const ctx = canvas.getContext('2d')
-    let w = canvas.width = window.innerWidth
-    let h = canvas.height = window.innerHeight
-    let raf
+    const DPR = Math.min(window.devicePixelRatio || 1, 2)
+    let w = window.innerWidth
+    let h = window.innerHeight
 
-    const stars = Array.from({ length: 350 }, () => ({
+    const setup = () => {
+      w = window.innerWidth
+      h = window.innerHeight
+      canvas.width = w * DPR
+      canvas.height = h * DPR
+      canvas.style.width = w + 'px'
+      canvas.style.height = h + 'px'
+      ctx.setTransform(DPR, 0, 0, DPR, 0, 0)
+      // paint an initial deep-sky base so the first frames don't look black
+      const g = ctx.createLinearGradient(0, 0, 0, h)
+      g.addColorStop(0, '#0a1740')
+      g.addColorStop(0.5, '#132a63')
+      g.addColorStop(1, '#0a1a4a')
+      ctx.fillStyle = g
+      ctx.fillRect(0, 0, w, h)
+    }
+    setup()
+
+    // Van Gogh palette (rich blues, deep purples, golden yellows, cream)
+    const PALETTE = [
+      '#0d1f52', '#183a86', '#2657b8', '#3b74d6', // blues
+      '#2a1b5c', '#3d2a7a', '#5a3e9c',            // purples
+      '#e8b923', '#f4c542', '#ffd76a', '#ffe9a3', // golds
+      '#f5efd6',                                   // cream
+    ]
+
+    // Swirl vortex centers (like the iconic swirls of Starry Night)
+    const vortices = [
+      { x: w * 0.32, y: h * 0.38, r: Math.max(w, h) * 0.32, s:  1.0, rot: 0 },
+      { x: w * 0.72, y: h * 0.28, r: Math.max(w, h) * 0.22, s: -0.9, rot: 0 },
+      { x: w * 0.55, y: h * 0.72, r: Math.max(w, h) * 0.36, s:  0.8, rot: 0 },
+      { x: w * 0.08, y: h * 0.78, r: Math.max(w, h) * 0.20, s: -0.7, rot: 0 },
+      { x: w * 0.92, y: h * 0.62, r: Math.max(w, h) * 0.22, s:  0.9, rot: 0 },
+    ]
+
+    // Bright golden stars (fixed positions with halos)
+    const goldStars = Array.from({ length: 11 }, () => ({
       x: Math.random() * w,
-      y: Math.random() * h,
-      r: Math.random() * 1.4 + 0.2,
+      y: Math.random() * h * 0.6,
+      r: 4 + Math.random() * 4,
       tw: Math.random() * Math.PI * 2,
-      twSpeed: Math.random() * 0.02 + 0.004,
-      depth: Math.random() * 0.6 + 0.2,
-      hue: 200 + Math.random() * 80,
+      twSpeed: 0.012 + Math.random() * 0.02,
     }))
+    // ensure a couple near the top for the "big" starry-night stars
+    goldStars[0] = { x: w * 0.18, y: h * 0.22, r: 7, tw: 0, twSpeed: 0.015 }
+    goldStars[1] = { x: w * 0.42, y: h * 0.14, r: 6, tw: 1, twSpeed: 0.018 }
+    goldStars[2] = { x: w * 0.62, y: h * 0.20, r: 5.5, tw: 2, twSpeed: 0.02 }
 
-    const dust = Array.from({ length: 60 }, () => ({
-      x: Math.random() * w,
-      y: Math.random() * h,
-      vx: (Math.random() - 0.5) * 0.15,
-      vy: (Math.random() - 0.5) * 0.15,
-      r: Math.random() * 1.6 + 0.4,
-      a: Math.random() * 0.4 + 0.1,
-    }))
+    // moon position (top-right)
+    const moon = { x: w * 0.85, y: h * 0.17, r: 46 }
 
-    const nebulae = Array.from({ length: 5 }, () => ({
-      x: Math.random() * w,
-      y: Math.random() * h,
-      r: 200 + Math.random() * 260,
-      hue: [270, 220, 300, 190, 330][Math.floor(Math.random() * 5)],
-      drift: Math.random() * 0.05 + 0.01,
-    }))
+    // Brushstroke particles that ride the flow field
+    const PARTICLE_COUNT = Math.floor(Math.min(1800, (w * h) / 900))
+    const particles = Array.from({ length: PARTICLE_COUNT }, () => spawnParticle())
+
+    function spawnParticle() {
+      return {
+        x: Math.random() * w,
+        y: Math.random() * h,
+        life: 30 + Math.random() * 120,
+        maxLife: 30 + Math.random() * 120,
+        color: PALETTE[Math.floor(Math.random() * PALETTE.length)],
+        size: 0.8 + Math.random() * 2.4,
+      }
+    }
+
+    // Flow field: sum contributions from vortices + a slow drift.
+    // Returns [vx, vy] in pixels per frame.
+    function flowAt(x, y, time) {
+      let vx = Math.cos(time * 0.00015 + y * 0.002) * 0.15 // slow ambient
+      let vy = Math.sin(time * 0.00012 + x * 0.002) * 0.12
+      for (const vo of vortices) {
+        const dx = x - vo.x
+        const dy = y - vo.y
+        const d2 = dx * dx + dy * dy
+        const d = Math.sqrt(d2) + 1
+        const falloff = Math.exp(-d / vo.r)
+        // tangential (perpendicular) rotation
+        const tx = -dy / d
+        const ty =  dx / d
+        // inward pull to keep particles curling
+        const ix = -dx / d
+        const iy = -dy / d
+        const rot = vo.s * (0.9 + Math.sin(vo.rot) * 0.15)
+        vx += (tx * 1.6 + ix * 0.35) * rot * falloff
+        vy += (ty * 1.6 + iy * 0.35) * rot * falloff
+      }
+      return [vx, vy]
+    }
 
     let shooting = []
-    let nextShoot = performance.now() + 4000
+    let nextShoot = performance.now() + 3000
+    let raf
+    let frame = 0
 
     const onResize = () => {
-      w = canvas.width = window.innerWidth
-      h = canvas.height = window.innerHeight
+      setup()
+      moon.x = w * 0.85
+      moon.y = h * 0.17
+      vortices[0].x = w * 0.32; vortices[0].y = h * 0.38
+      vortices[1].x = w * 0.72; vortices[1].y = h * 0.28
+      vortices[2].x = w * 0.55; vortices[2].y = h * 0.72
+      vortices[3].x = w * 0.08; vortices[3].y = h * 0.78
+      vortices[4].x = w * 0.92; vortices[4].y = h * 0.62
     }
     const onMove = (e) => {
       mouseRef.current.x = (e.clientX / w - 0.5)
@@ -67,81 +141,169 @@ function GalaxyBackground() {
     window.addEventListener('resize', onResize)
     window.addEventListener('mousemove', onMove)
 
-    const draw = (t) => {
-      ctx.fillStyle = '#04040d'
+    // painterly base is redrawn every frame with a soft veil so old strokes
+    // fade gradually -> creates the living "hand-painted" impression
+    const drawFadeBase = () => {
+      // subtle vertical gradient veil
+      const g = ctx.createLinearGradient(0, 0, 0, h)
+      g.addColorStop(0, 'rgba(8, 20, 60, 0.10)')
+      g.addColorStop(0.5, 'rgba(20, 40, 100, 0.09)')
+      g.addColorStop(1, 'rgba(10, 20, 60, 0.11)')
+      ctx.fillStyle = g
       ctx.fillRect(0, 0, w, h)
 
-      // Nebulae
-      for (const n of nebulae) {
-        n.x += n.drift
-        if (n.x - n.r > w) n.x = -n.r
-        const g = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, n.r)
-        g.addColorStop(0, `hsla(${n.hue}, 90%, 60%, 0.22)`)
-        g.addColorStop(0.4, `hsla(${n.hue}, 90%, 50%, 0.08)`)
-        g.addColorStop(1, 'hsla(0, 0%, 0%, 0)')
-        ctx.fillStyle = g
-        ctx.fillRect(0, 0, w, h)
+      // gentle purple wash bottom-left, gold wash mid
+      const g2 = ctx.createRadialGradient(w * 0.2, h * 0.85, 0, w * 0.2, h * 0.85, Math.max(w, h) * 0.6)
+      g2.addColorStop(0, 'rgba(70, 40, 130, 0.05)')
+      g2.addColorStop(1, 'rgba(0,0,0,0)')
+      ctx.fillStyle = g2
+      ctx.fillRect(0, 0, w, h)
+    }
+
+    const drawMoon = (t) => {
+      const mx = moon.x, my = moon.y, mr = moon.r
+      // outer halo brushstrokes (radiating short strokes)
+      ctx.save()
+      ctx.globalCompositeOperation = 'lighter'
+      const rings = 5
+      for (let r = 0; r < rings; r++) {
+        const radius = mr + 14 + r * 12
+        const strokes = 40 + r * 8
+        for (let i = 0; i < strokes; i++) {
+          const a = (i / strokes) * Math.PI * 2 + t * 0.00005 * (r % 2 === 0 ? 1 : -1)
+          const sx = mx + Math.cos(a) * radius
+          const sy = my + Math.sin(a) * radius
+          const len = 8 + Math.random() * 6
+          const ex = sx + Math.cos(a) * len
+          const ey = sy + Math.sin(a) * len
+          ctx.strokeStyle = `rgba(255, 220, 130, ${0.10 - r * 0.015})`
+          ctx.lineWidth = 2.5 - r * 0.3
+          ctx.lineCap = 'round'
+          ctx.beginPath()
+          ctx.moveTo(sx, sy)
+          ctx.lineTo(ex, ey)
+          ctx.stroke()
+        }
       }
+      // moon disc with warm gradient
+      const mg = ctx.createRadialGradient(mx - 8, my - 8, 2, mx, my, mr)
+      mg.addColorStop(0, '#fff6d0')
+      mg.addColorStop(0.6, '#ffd76a')
+      mg.addColorStop(1, '#e8a523')
+      ctx.fillStyle = mg
+      ctx.beginPath()
+      ctx.arc(mx, my, mr, 0, Math.PI * 2)
+      ctx.fill()
+      // inner painterly highlights
+      ctx.strokeStyle = 'rgba(255, 250, 210, 0.5)'
+      ctx.lineWidth = 1.4
+      for (let i = 0; i < 14; i++) {
+        const a = i * 0.5 + t * 0.0002
+        const rr = mr * 0.35 + (i % 3) * 4
+        ctx.beginPath()
+        ctx.arc(mx - 6, my - 6, rr, a, a + 0.9)
+        ctx.stroke()
+      }
+      ctx.restore()
+    }
 
-      // Aurora subtle
-      const auroraGrad = ctx.createLinearGradient(0, h * 0.2, 0, h * 0.9)
-      auroraGrad.addColorStop(0, 'rgba(120,80,200,0.05)')
-      auroraGrad.addColorStop(0.5, 'rgba(70,130,220,0.08)')
-      auroraGrad.addColorStop(1, 'rgba(0,0,0,0)')
-      ctx.fillStyle = auroraGrad
-      ctx.fillRect(0, 0, w, h)
-
-      // Stars with parallax + twinkle
-      const mx = mouseRef.current.x * 30
-      const my = mouseRef.current.y * 30
-      for (const s of stars) {
+    const drawGoldStars = (t) => {
+      ctx.save()
+      ctx.globalCompositeOperation = 'lighter'
+      for (const s of goldStars) {
         s.tw += s.twSpeed
-        const alpha = 0.5 + Math.sin(s.tw) * 0.5
+        const pulse = 0.75 + Math.sin(s.tw) * 0.25
+        // halo brushstrokes
+        for (let r = 0; r < 3; r++) {
+          const radius = s.r + 6 + r * 8
+          const strokes = 18 + r * 4
+          for (let i = 0; i < strokes; i++) {
+            const a = (i / strokes) * Math.PI * 2 + t * 0.0002 * (r % 2 ? 1 : -1)
+            const sx = s.x + Math.cos(a) * radius
+            const sy = s.y + Math.sin(a) * radius
+            const len = 4 + Math.random() * 4
+            ctx.strokeStyle = `rgba(255, 220, 130, ${(0.14 - r * 0.03) * pulse})`
+            ctx.lineWidth = 1.6 - r * 0.3
+            ctx.lineCap = 'round'
+            ctx.beginPath()
+            ctx.moveTo(sx, sy)
+            ctx.lineTo(sx + Math.cos(a) * len, sy + Math.sin(a) * len)
+            ctx.stroke()
+          }
+        }
+        // star core
+        const gs = ctx.createRadialGradient(s.x, s.y, 0, s.x, s.y, s.r * 2.2)
+        gs.addColorStop(0, `rgba(255, 250, 220, ${pulse})`)
+        gs.addColorStop(0.4, `rgba(255, 210, 100, ${0.7 * pulse})`)
+        gs.addColorStop(1, 'rgba(230, 160, 40, 0)')
+        ctx.fillStyle = gs
         ctx.beginPath()
-        const px = s.x - mx * s.depth
-        const py = s.y - my * s.depth
-        ctx.arc(px, py, s.r, 0, Math.PI * 2)
-        ctx.fillStyle = `hsla(${s.hue}, 100%, 90%, ${alpha})`
-        ctx.shadowBlur = 6
-        ctx.shadowColor = `hsla(${s.hue}, 100%, 80%, ${alpha})`
+        ctx.arc(s.x, s.y, s.r * 2.2, 0, Math.PI * 2)
         ctx.fill()
       }
-      ctx.shadowBlur = 0
+      ctx.restore()
+    }
 
-      // Dust
-      for (const d of dust) {
-        d.x += d.vx
-        d.y += d.vy
-        if (d.x < 0) d.x = w
-        if (d.x > w) d.x = 0
-        if (d.y < 0) d.y = h
-        if (d.y > h) d.y = 0
+    const draw = (t) => {
+      frame++
+      // rotate vortex phases (for subtle "breathing")
+      for (const v of vortices) v.rot += 0.003
+
+      drawFadeBase()
+
+      // Brushstroke particles
+      const mouseInfluenceX = mouseRef.current.x * 12
+      const mouseInfluenceY = mouseRef.current.y * 12
+      ctx.lineCap = 'round'
+      for (let i = 0; i < particles.length; i++) {
+        const p = particles[i]
+        const [vx, vy] = flowAt(p.x, p.y, t)
+        const nx = p.x + vx + mouseInfluenceX * 0.02
+        const ny = p.y + vy + mouseInfluenceY * 0.02
+        const speed = Math.hypot(vx, vy)
+        const alpha = Math.min(0.9, 0.15 + speed * 0.22) * (p.life / p.maxLife)
+        // short brushstroke = line from (p.x,p.y) to (nx,ny)
+        ctx.strokeStyle = hexA(p.color, alpha)
+        ctx.lineWidth = p.size
         ctx.beginPath()
-        ctx.arc(d.x, d.y, d.r, 0, Math.PI * 2)
-        ctx.fillStyle = `rgba(220, 220, 255, ${d.a})`
-        ctx.fill()
+        ctx.moveTo(p.x, p.y)
+        ctx.lineTo(nx, ny)
+        ctx.stroke()
+        p.x = nx
+        p.y = ny
+        p.life -= 1
+        if (p.life <= 0 || p.x < -20 || p.x > w + 20 || p.y < -20 || p.y > h + 20) {
+          Object.assign(p, spawnParticle())
+        }
       }
 
-      // Shooting stars
+      drawGoldStars(t)
+      drawMoon(t)
+
+      // Shooting stars (occasional golden streaks)
       if (t > nextShoot) {
         shooting.push({
-          x: Math.random() * w * 0.6,
-          y: Math.random() * h * 0.4,
-          vx: 8 + Math.random() * 5,
+          x: Math.random() * w * 0.7,
+          y: Math.random() * h * 0.35,
+          vx: 9 + Math.random() * 5,
           vy: 3 + Math.random() * 3,
-          life: 60,
+          life: 70,
         })
         nextShoot = t + 8000 + Math.random() * 7000
       }
       shooting = shooting.filter(sh => sh.life > 0)
+      ctx.save()
+      ctx.globalCompositeOperation = 'lighter'
       for (const sh of shooting) {
-        const tailX = sh.x - sh.vx * 8
-        const tailY = sh.y - sh.vy * 8
+        const tailX = sh.x - sh.vx * 9
+        const tailY = sh.y - sh.vy * 9
         const grad = ctx.createLinearGradient(tailX, tailY, sh.x, sh.y)
-        grad.addColorStop(0, 'rgba(255,255,255,0)')
-        grad.addColorStop(1, `rgba(255,255,255,${sh.life / 60})`)
+        grad.addColorStop(0, 'rgba(255, 220, 130, 0)')
+        grad.addColorStop(0.6, `rgba(255, 230, 160, ${sh.life / 90})`)
+        grad.addColorStop(1, `rgba(255, 250, 210, ${sh.life / 70})`)
         ctx.strokeStyle = grad
-        ctx.lineWidth = 2
+        ctx.lineWidth = 2.6
+        ctx.lineCap = 'round'
         ctx.beginPath()
         ctx.moveTo(tailX, tailY)
         ctx.lineTo(sh.x, sh.y)
@@ -150,21 +312,7 @@ function GalaxyBackground() {
         sh.y += sh.vy
         sh.life -= 1
       }
-
-      // Moon glow top-right
-      const moonG = ctx.createRadialGradient(w * 0.85, h * 0.18, 0, w * 0.85, h * 0.18, 240)
-      moonG.addColorStop(0, 'rgba(255,240,220,0.35)')
-      moonG.addColorStop(0.3, 'rgba(255,240,220,0.10)')
-      moonG.addColorStop(1, 'rgba(0,0,0,0)')
-      ctx.fillStyle = moonG
-      ctx.fillRect(0, 0, w, h)
-      ctx.beginPath()
-      ctx.arc(w * 0.85, h * 0.18, 42, 0, Math.PI * 2)
-      ctx.fillStyle = 'rgba(255,245,225,0.85)'
-      ctx.shadowBlur = 40
-      ctx.shadowColor = 'rgba(255,240,220,0.7)'
-      ctx.fill()
-      ctx.shadowBlur = 0
+      ctx.restore()
 
       raf = requestAnimationFrame(draw)
     }
@@ -183,6 +331,15 @@ function GalaxyBackground() {
       style={{ pointerEvents: 'none' }}
     />
   )
+}
+
+// hex color + alpha helper
+function hexA(hex, a) {
+  const h = hex.replace('#', '')
+  const r = parseInt(h.substring(0, 2), 16)
+  const g = parseInt(h.substring(2, 4), 16)
+  const b = parseInt(h.substring(4, 6), 16)
+  return `rgba(${r}, ${g}, ${b}, ${a})`
 }
 
 // ---------- Paper Star SVG ----------
@@ -454,10 +611,10 @@ function App() {
     <div className="relative min-h-screen w-full overflow-hidden select-none">
       <GalaxyBackground />
 
-      {/* Aurora layers */}
-      <div className="aurora-layer fixed inset-0 z-0 pointer-events-none"
+      {/* Subtle warm gold vignette to enhance painterly feel */}
+      <div className="fixed inset-0 z-0 pointer-events-none"
         style={{
-          background: 'radial-gradient(ellipse at 30% 60%, rgba(120, 80, 200, 0.18) 0%, transparent 50%), radial-gradient(ellipse at 70% 40%, rgba(60, 140, 220, 0.14) 0%, transparent 55%)',
+          background: 'radial-gradient(ellipse at 85% 17%, rgba(255, 210, 120, 0.10) 0%, transparent 40%), radial-gradient(ellipse at 20% 80%, rgba(70, 40, 130, 0.10) 0%, transparent 55%)',
         }}
       />
 
