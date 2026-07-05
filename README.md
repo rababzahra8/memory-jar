@@ -27,8 +27,6 @@ yarn dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
-Health check: [http://localhost:3000/api/health](http://localhost:3000/api/health)
-
 ---
 
 ## Supabase (optional)
@@ -64,7 +62,6 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
 
 | Method | Route | Description |
 |--------|-------|-------------|
-| `GET` | `/api/health` | Health check; reports `supabase: true/false` |
 | `GET` | `/api/memories` | List all memories (newest last) |
 | `POST` | `/api/memories` | Create `{ text, type, author? }` |
 | `DELETE` | `/api/memories/:id` | Delete a memory |
@@ -86,7 +83,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
 ```
 app/
   page.js              # UI, galaxy background, jar physics, reveal flow
-  api/[[...path]]/     # REST API (health, memories CRUD)
+  api/[[...path]]/     # REST API (memories CRUD)
   globals.css          # theme, text shadows, jar glass styles
 lib/
   supabaseClient.js    # lazy Supabase client + config guard
