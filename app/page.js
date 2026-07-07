@@ -89,146 +89,7 @@ const EMOJI_PICKS = [
   "💖",
 ];
 
-function builtinNote(id, text, type, sampleSource) {
-  return {
-    id,
-    text,
-    type,
-    isSample: true,
-    sampleSource,
-    author: null,
-    createdAt: 0,
-  };
-}
-
-/** Warm starter notes — always in the jar, never saved */
-const STARTER_MEMORIES = [
-  builtinNote(
-    "sample-welcome",
-    "😂 Welcome! The jar was empty, so we panicked and left you this note. No humans were consulted.",
-    "funny",
-    "starter",
-  ),
-  builtinNote(
-    "sample-snack",
-    "🥳 Jar rule #1: if you can read this, you are legally allowed one snack. The jar said so.",
-    "funny",
-    "starter",
-  ),
-  builtinNote(
-    "sample-stars",
-    "✨ The stars asked me to tell you that you are doing better than you think. Trust the stars.",
-    "dream",
-    "starter",
-  ),
-  builtinNote(
-    "sample-listener",
-    "🤪 I talk to this jar sometimes. It never interrupts. Your group chat could never.",
-    "secret",
-    "starter",
-  ),
-  builtinNote(
-    "sample-ghost",
-    "👻 This is a default note. I was never written by a person — I am just here so the jar is not lonely.",
-    "story",
-    "starter",
-  ),
-  builtinNote(
-    "sample-flowers",
-    "🌸 Imagine someone left you flowers. Since nobody did yet, here are pretend ones. You deserve them anyway.",
-    "flower",
-    "starter",
-  ),
-];
-
-/** Sarcastic system notes — built-in, never saved */
-const SYSTEM_MEMORIES = [
-  // Career & work
-  builtinNote(
-    "system-career-1",
-    "💀 Do something today that your future self will thank you for. (Just kidding, go take a nap.)",
-    "funny",
-    "system",
-  ),
-  builtinNote(
-    "system-career-2",
-    "💀 Teamwork means sharing the blame.",
-    "funny",
-    "system",
-  ),
-  builtinNote(
-    "system-career-3",
-    "💀 Your only limit is your mind. And a crippling lack of motivation.",
-    "funny",
-    "system",
-  ),
-  builtinNote(
-    "system-career-4",
-    "💀 Hard work pays off later. Laziness pays off right now.",
-    "funny",
-    "system",
-  ),
-  builtinNote(
-    "system-career-5",
-    "💀 Hard work never killed anybody. But why take the risk?",
-    "funny",
-    "system",
-  ),
-  // Daily struggles
-  builtinNote(
-    "system-daily-1",
-    "☕ The elevator to success is out of order. You'll have to use the stairs... like a chump.",
-    "story",
-    "system",
-  ),
-  builtinNote(
-    "system-daily-2",
-    "☕ Always remember you are unique. Just like everyone else.",
-    "story",
-    "system",
-  ),
-  builtinNote(
-    "system-daily-3",
-    "☕ Trying is the first step toward failure.",
-    "story",
-    "system",
-  ),
-  builtinNote(
-    "system-daily-4",
-    "☕ The early bird gets the worm. But the early worm gets eaten. So sleep in.",
-    "story",
-    "system",
-  ),
-  // Sarcastic goal-getter
-  builtinNote(
-    "system-goal-1",
-    "🌟 Don't give up on your dreams. Keep sleeping.",
-    "dream",
-    "system",
-  ),
-  builtinNote(
-    "system-goal-2",
-    "🌟 You can do anything you put your mind to... except for that one thing you're actually supposed to be doing right now.",
-    "dream",
-    "system",
-  ),
-  builtinNote(
-    "system-goal-3",
-    "🌟 Shoot for the moon. Even if you miss, you'll land among the stars... and freeze to death.",
-    "dream",
-    "system",
-  ),
-  builtinNote(
-    "system-goal-4",
-    "🌟 Today is going to be a day. That's for sure.",
-    "dream",
-    "system",
-  ),
-];
-
-const BUILTIN_MEMORIES = [...STARTER_MEMORIES, ...SYSTEM_MEMORIES];
-
-function isBuiltinMemory(m) {
+function isLegacyBuiltinMemory(m) {
   return Boolean(
     m?.isSample ||
     String(m?.id).startsWith("sample-") ||
@@ -237,7 +98,7 @@ function isBuiltinMemory(m) {
 }
 
 function isUserMemory(m) {
-  return m && !isBuiltinMemory(m);
+  return m && !isLegacyBuiltinMemory(m);
 }
 
 const MINE_IDS_KEY = "memoryJarMine";
@@ -314,13 +175,7 @@ function replaceMineId(oldId, newId) {
   persistMineIds(set);
 }
 
-function builtinLabel(memory) {
-  if (memory?.sampleSource === "system") return "system";
-  return "starter";
-}
-
-function memorySourceLabel(memory) {
-  if (isBuiltinMemory(memory)) return "Memory / note by system";
+function memorySourceLabel() {
   return "Memory / note by real people";
 }
 
@@ -846,11 +701,8 @@ function hexA(hex, a) {
 
 // ---------- Paper star marker (jar always shows stars by memory type) ----------
 function MemoryGlyph({ memory, size = 24 }) {
-  const hint = memory.isSample
-    ? `${builtinLabel(memory) === "system" ? "System" : "Starter"} note (not written by anyone)`
-    : undefined;
   return (
-    <span title={hint} style={{ opacity: memory.isSample ? 0.88 : 1 }}>
+    <span title="Memory / note">
       <PaperStar color={typeMeta(memory.type).color} size={size} />
     </span>
   );
@@ -1179,7 +1031,7 @@ function useJarPhysics(memories, shakeRef, wakeRef) {
     const next = memories.map((m, i) => {
       const existing = prev.find((p) => p.id === m.id);
       if (existing) return existing;
-      if (isBuiltinMemory(m)) {
+      if (isLegacyBuiltinMemory(m)) {
         const col = i % cols;
         const row = Math.floor(i / cols);
         return {
@@ -1402,10 +1254,7 @@ function App() {
     } catch {}
   }, [bumpMineIds]);
 
-  const memories = useMemo(
-    () => [...BUILTIN_MEMORIES, ...userMemories],
-    [userMemories],
-  );
+  const memories = useMemo(() => userMemories, [userMemories]);
   const userMemoryCount = userMemories.length;
   const [text, setText] = useState("");
   const [type, setType] = useState("secret");
@@ -1427,7 +1276,6 @@ function App() {
     lastY: 0,
     moved: false,
   });
-  const revealTimeoutRef = useRef(null);
   const revealedRef = useRef(null);
   revealedRef.current = revealed;
 
@@ -1577,31 +1425,19 @@ function App() {
     (pool, { instant = true } = {}) => {
       if (revealedRef.current) return;
       let list = [];
-      if (pool === "starter") list = STARTER_MEMORIES;
-      else if (pool === "system") list = SYSTEM_MEMORIES;
-      else if (pool === "people") list = userMemories;
-      else if (pool === "builtin") list = BUILTIN_MEMORIES;
+      if (pool === "people") list = userMemories;
       else if (pool === "others") list = othersMemories;
       else if (pool === "yours") list = myMemories;
       else list = memories;
       if (list.length === 0) return;
       const picked = pickShuffledFromPool(list);
       if (!picked) return;
-      if (revealTimeoutRef.current) clearTimeout(revealTimeoutRef.current);
       setRevealed({ ...picked, _instant: instant });
-      revealTimeoutRef.current = setTimeout(() => {
-        setRevealed(null);
-        revealTimeoutRef.current = null;
-      }, 6500);
     },
     [userMemories, memories, myMemories, othersMemories],
   );
 
   const closeReveal = useCallback(() => {
-    if (revealTimeoutRef.current) {
-      clearTimeout(revealTimeoutRef.current);
-      revealTimeoutRef.current = null;
-    }
     setRevealed(null);
   }, []);
 
@@ -1955,7 +1791,6 @@ const JarSVG = forwardRef(function JarSVG(
               <g
                 key={m.id}
                 transform={`translate(${cx + p.x}, ${cy + p.y}) rotate(${p.rot})`}
-                opacity={m.isSample ? 0.88 : 1}
               >
                 <g transform={`translate(${-starOffset}, ${-starOffset})`}>
                   <PaperStar color={meta.color} size={JAR_STAR_SIZE} />
@@ -2099,7 +1934,6 @@ function RevealCard({ memory, onClose, jarRef, instant = false }) {
     setPhase("floating");
     const t1 = setTimeout(() => setPhase("unfolding"), 500);
     const t2 = setTimeout(() => setPhase("shown"), 1100);
-    const t3 = setTimeout(() => setPhase("folding"), 5400);
     const onKey = (e) => {
       if (e.key === "Escape") onCloseRef.current();
     };
@@ -2107,7 +1941,6 @@ function RevealCard({ memory, onClose, jarRef, instant = false }) {
     return () => {
       clearTimeout(t1);
       clearTimeout(t2);
-      clearTimeout(t3);
       window.removeEventListener("keydown", onKey);
     };
   }, [memory.id, instant]);
@@ -2197,7 +2030,7 @@ function RevealCard({ memory, onClose, jarRef, instant = false }) {
         {phase === "shown" && (
           <>
             <p className="text-center text-xs uppercase tracking-widest text-slate-200/90 mb-3 text-safe pointer-events-none">
-              {memorySourceLabel(memory)}
+              {memorySourceLabel()}
             </p>
             <motion.div
               initial={{ opacity: 0, scale: 0.6 }}
@@ -2217,16 +2050,14 @@ function RevealCard({ memory, onClose, jarRef, instant = false }) {
               <p className="text-slate-50 text-base sm:text-lg leading-relaxed whitespace-pre-wrap break-words">
                 {memory.text}
               </p>
-              {memory.author && !memory.isSample && (
-                <div className="mt-4 text-right text-sm text-slate-300/80 italic">
-                  &mdash; {memory.author}
-                </div>
-              )}
-              {!memory.isSample && (
-                <div className="mt-3 text-[10px] text-slate-400">
-                  {new Date(memory.createdAt).toLocaleString()}
-                </div>
-              )}
+            {memory.author && (
+              <div className="mt-4 text-right text-sm text-slate-300/80 italic">
+                &mdash; {memory.author}
+              </div>
+            )}
+            <div className="mt-3 text-[10px] text-slate-400">
+              {new Date(memory.createdAt).toLocaleString()}
+            </div>
               <button
                 type="button"
                 onClick={(e) => {
