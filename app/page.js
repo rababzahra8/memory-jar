@@ -8,6 +8,7 @@ import {
   useMemo,
   forwardRef,
 } from "react";
+import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Sparkles,
@@ -18,7 +19,15 @@ import {
   Star as StarIcon,
   Flower2,
   X,
+  PenLine,
+  Lock,
 } from "lucide-react";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 
 const MEMORY_TYPES = [
   {
@@ -232,6 +241,50 @@ function isUserMemory(m) {
 }
 
 const MINE_IDS_KEY = "memoryJarMine";
+const DRAW_QUEUE_KEY = "memoryJarDrawQueue";
+
+function shuffleIds(ids) {
+  const list = [...ids];
+  for (let i = list.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [list[i], list[j]] = [list[j], list[i]];
+  }
+  return list;
+}
+
+function loadDrawQueue() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(DRAW_QUEUE_KEY) || "null");
+    if (!raw || !Array.isArray(raw.queue)) return null;
+    return raw;
+  } catch {
+    return null;
+  }
+}
+
+function saveDrawQueue(state) {
+  localStorage.setItem(DRAW_QUEUE_KEY, JSON.stringify(state));
+}
+
+/** Pick from pool without repeat until every note has been shown, then reshuffle. */
+function pickShuffledFromPool(pool) {
+  if (!pool.length) return null;
+  const poolKey = pool
+    .map((m) => m.id)
+    .sort()
+    .join("|");
+  let state = loadDrawQueue();
+  if (!state || state.poolKey !== poolKey || state.queue.length === 0) {
+    state = { poolKey, queue: shuffleIds(pool.map((m) => m.id)) };
+  }
+  let nextId = state.queue.shift();
+  if (!nextId) {
+    state.queue = shuffleIds(pool.map((m) => m.id));
+    nextId = state.queue.shift();
+  }
+  saveDrawQueue(state);
+  return pool.find((m) => m.id === nextId) || pool[0];
+}
 
 function loadMineIds() {
   try {
@@ -266,11 +319,9 @@ function builtinLabel(memory) {
   return "starter";
 }
 
-function builtinRevealMessage(memory) {
-  if (memory?.sampleSource === "system") {
-    return "💀 System note — not written by anyone, just sarcasm baked into the jar.";
-  }
-  return "✨ Starter note — not written by anyone, just here to warm up the jar.";
+function memorySourceLabel(memory) {
+  if (isBuiltinMemory(memory)) return "Memory / note by system";
+  return "Memory / note by real people";
 }
 
 function noteStartsWithEmoji(note, e) {
@@ -354,42 +405,116 @@ function GalaxyBackground() {
       { x: w * 0.92, y: h * 0.62, r: Math.max(w, h) * 0.22, s: 0.9, rot: 0 },
     ];
 
-    // Bright golden stars — bigger, more spread out
-    const gridCols = 5;
-    const gridRows = 4;
-    const cellW = w / gridCols;
-    const cellH = h / gridRows;
-    const goldStars = [];
-    for (let gy = 0; gy < gridRows; gy++) {
-      for (let gx = 0; gx < gridCols; gx++) {
-        goldStars.push({
-          x: gx * cellW + cellW * (0.12 + Math.random() * 0.76),
-          y: gy * cellH + cellH * (0.12 + Math.random() * 0.76),
-          r: 7 + Math.random() * 7,
+    const isMobileView = () => w < 768;
+
+    // Iconic big gold stars — fixed positions, spread so halos don't overlap
+    const buildIconicGoldStars = () => {
+      const scale = isMobileView() ? 0.82 : 1;
+      return [
+        { x: w * 0.1, y: h * 0.11, r: 14 * scale, tw: 0, twSpeed: 0.015 },
+        { x: w * 0.34, y: h * 0.07, r: 12 * scale, tw: 1, twSpeed: 0.018 },
+        { x: w * 0.54, y: h * 0.13, r: 11 * scale, tw: 2, twSpeed: 0.02 },
+        { x: w * 0.18, y: h * 0.44, r: 10 * scale, tw: 0.5, twSpeed: 0.016 },
+        { x: w * 0.7, y: h * 0.46, r: 9 * scale, tw: 1.5, twSpeed: 0.014 },
+      ];
+    };
+
+    const goldHaloReach = (s) => s.r * 4.5 + 30;
+
+    const canPlaceGold = (stars, x, y, r) => {
+      const reach = goldHaloReach({ r });
+      if (
+        stars.some(
+          (g) => Math.hypot(g.x - x, g.y - y) < goldHaloReach(g) + reach,
+        )
+      )
+        return false;
+      if (Math.hypot(moon.x - x, moon.y - y) < moon.r + reach + 12)
+        return false;
+      return true;
+    };
+
+    const moon = { x: w * 0.85, y: h * 0.17, r: 46 };
+
+    const buildGoldStars = () => {
+      const stars = buildIconicGoldStars();
+      // Two smaller bottom stars on mobile — spread apart below the jar
+      if (isMobileView()) {
+        const bottomPairs = [
+          { x: w * 0.12, y: h * 0.76, r: 6.5, tw: 0.4, twSpeed: 0.012 },
+          { x: w * 0.88, y: h * 0.79, r: 6.5, tw: 2.1, twSpeed: 0.013 },
+        ];
+        for (const s of bottomPairs) {
+          if (canPlaceGold(stars, s.x, s.y, s.r)) stars.push(s);
+        }
+      }
+      // Medium grid stars only on tablet+ — reject overlaps
+      if (w >= 768) {
+        const gridCols = w >= 1024 ? 5 : 3;
+        const gridRows = w >= 1024 ? 4 : 2;
+        const cellW = w / gridCols;
+        const cellH = h / gridRows;
+        for (let gy = 0; gy < gridRows; gy++) {
+          for (let gx = 0; gx < gridCols; gx++) {
+            const r = 7 + Math.random() * 5;
+            for (let attempt = 0; attempt < 24; attempt++) {
+              const x = gx * cellW + cellW * (0.2 + Math.random() * 0.6);
+              const y = gy * cellH + cellH * (0.2 + Math.random() * 0.6);
+              if (canPlaceGold(stars, x, y, r)) {
+                stars.push({
+                  x,
+                  y,
+                  r,
+                  tw: Math.random() * Math.PI * 2,
+                  twSpeed: 0.01 + Math.random() * 0.02,
+                });
+                break;
+              }
+            }
+          }
+        }
+      }
+      return stars;
+    };
+
+    const buildSmallStars = (goldList) => {
+      const mobile = isMobileView();
+      const target = w < 480 ? 22 : w < 768 ? 36 : w < 1024 ? 60 : 85;
+      const minDist = mobile ? 32 : 36;
+      const sizeScale = mobile ? 0.85 : 1;
+      const stars = [];
+      for (
+        let attempt = 0;
+        attempt < target * 50 && stars.length < target;
+        attempt++
+      ) {
+        const x = Math.random() * w;
+        const y = Math.random() * h;
+        if (stars.some((s) => Math.hypot(s.x - x, s.y - y) < minDist)) continue;
+        const nearGold = goldList.some(
+          (g) => Math.hypot(g.x - x, g.y - y) < goldHaloReach(g) + 8,
+        );
+        if (nearGold) continue;
+        if (Math.hypot(moon.x - x, moon.y - y) < moon.r + 36) continue;
+        stars.push({
+          x,
+          y,
+          r: (0.35 + Math.random() * 0.85) * sizeScale,
           tw: Math.random() * Math.PI * 2,
-          twSpeed: 0.01 + Math.random() * 0.02,
+          twSpeed: 0.003 + Math.random() * 0.01,
+          brightness: 0.2 + Math.random() * 0.38,
         });
       }
-    }
-    // iconic big stars scattered across the sky
-    goldStars[0] = { x: w * 0.12, y: h * 0.14, r: 14, tw: 0, twSpeed: 0.015 };
-    goldStars[1] = { x: w * 0.38, y: h * 0.08, r: 12, tw: 1, twSpeed: 0.018 };
-    goldStars[2] = { x: w * 0.68, y: h * 0.18, r: 11, tw: 2, twSpeed: 0.02 };
-    goldStars[3] = { x: w * 0.88, y: h * 0.32, r: 10, tw: 0.5, twSpeed: 0.016 };
-    goldStars[4] = { x: w * 0.22, y: h * 0.55, r: 9, tw: 1.5, twSpeed: 0.014 };
+      return stars;
+    };
 
-    // Small background stars (depth layer behind the big ones)
-    const smallStars = Array.from({ length: 110 }, () => ({
-      x: Math.random() * w,
-      y: Math.random() * h,
-      r: 0.5 + Math.random() * 2,
-      tw: Math.random() * Math.PI * 2,
-      twSpeed: 0.004 + Math.random() * 0.012,
-      brightness: 0.3 + Math.random() * 0.65,
-    }));
+    let goldStars = buildGoldStars();
+    let smallStars = buildSmallStars(goldStars);
 
-    // moon position (top-right)
-    const moon = { x: w * 0.85, y: h * 0.17, r: 46 };
+    const rebuildStars = () => {
+      goldStars = buildGoldStars();
+      smallStars = buildSmallStars(goldStars);
+    };
 
     // Brushstroke particles that ride the flow field
     const PARTICLE_COUNT = Math.floor(Math.min(2200, (w * h) / 750));
@@ -451,6 +576,7 @@ function GalaxyBackground() {
       vortices[3].y = h * 0.78;
       vortices[4].x = w * 0.92;
       vortices[4].y = h * 0.62;
+      rebuildStars();
     };
     const onMove = (e) => {
       mouseRef.current.x = e.clientX / w - 0.5;
@@ -575,12 +701,14 @@ function GalaxyBackground() {
     const drawGoldStars = (t) => {
       ctx.save();
       ctx.globalCompositeOperation = "lighter";
+      const haloRings = isMobileView() ? 2 : 4;
+      const haloSpread = isMobileView() ? 0.55 : 1;
       for (const s of goldStars) {
         s.tw += s.twSpeed;
         const pulse = 0.75 + Math.sin(s.tw) * 0.25;
         // halo brushstrokes
-        for (let r = 0; r < 4; r++) {
-          const radius = s.r + 8 + r * 10;
+        for (let r = 0; r < haloRings; r++) {
+          const radius = s.r + (8 + r * 10) * haloSpread;
           const strokes = 22 + r * 6;
           for (let i = 0; i < strokes; i++) {
             const a =
@@ -1120,6 +1248,132 @@ function useJarPhysics(memories, shakeRef, wakeRef) {
 }
 
 // ---------- Main App ----------
+// ---------- Memory form (shared desktop panel + mobile sheet) ----------
+
+function MemoryFormFields({
+  text,
+  setText,
+  author,
+  setAuthor,
+  type,
+  setType,
+  dropMemory,
+  droppingStar,
+  memories,
+  othersMemories,
+  compact = false,
+}) {
+  return (
+    <>
+      <label className="text-slate-100 text-sm mb-1.5 block text-safe">
+        Your memory / note
+      </label>
+      <textarea
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        placeholder="Write a memory or note..."
+        rows={compact ? 2 : 3}
+        className="w-full rounded-xl bg-black/50 border border-white/20 focus:border-purple-400/60 focus:ring-2 focus:ring-purple-400/30 outline-none px-3 py-2.5 text-sm text-slate-50 placeholder:text-slate-400/70 resize-none transition"
+      />
+
+      <input
+        value={author}
+        onChange={(e) => setAuthor(e.target.value)}
+        placeholder="Name (optional)"
+        maxLength={80}
+        className="mt-2 w-full rounded-xl bg-black/50 border border-white/20 focus:border-pink-400/60 focus:ring-2 focus:ring-pink-400/30 outline-none px-3 py-2 text-sm text-slate-50 placeholder:text-slate-400/70"
+      />
+
+      <div className="mt-2">
+        <div className="text-slate-200 text-xs mb-1.5 text-safe">
+          Emoji (optional)
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {EMOJI_PICKS.map((e) => (
+            <button
+              key={e}
+              type="button"
+              onClick={() => setText((prev) => toggleEmojiInNote(prev, e))}
+              className={`text-lg leading-none w-9 h-9 rounded-lg border transition-all ${noteStartsWithEmoji(text, e) ? "border-white/40 bg-white/15 scale-110" : "border-white/10 bg-black/40 hover:border-white/25 hover:bg-white/10"}`}
+              title={
+                noteStartsWithEmoji(text, e)
+                  ? "Remove from note"
+                  : "Add to note"
+              }
+            >
+              {e}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-2">
+        <div className="text-slate-200 text-xs mb-1.5 text-safe">
+          Type of memory / note
+        </div>
+        <div className="grid grid-cols-3 gap-1.5">
+          {MEMORY_TYPES.map((t) => {
+            const Icon = t.icon;
+            const active = t.id === type;
+            return (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setType(t.id)}
+                className={`group flex flex-col items-center justify-center rounded-xl border py-2 transition-all ${active ? "border-white/30 bg-white/10 scale-[1.03]" : "border-white/5 hover:border-white/15 bg-white/5"}`}
+                style={
+                  active
+                    ? {
+                        boxShadow: `0 0 16px ${t.glow}, inset 0 0 8px ${t.glow}`,
+                      }
+                    : {}
+                }
+                title={t.label}
+              >
+                <Icon
+                  size={15}
+                  style={{
+                    color: t.color,
+                    filter: `drop-shadow(0 0 6px ${t.glow})`,
+                  }}
+                />
+                <span className="text-[9px] mt-0.5 text-slate-200/90 leading-tight text-center">
+                  {t.label}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="mt-4 space-y-2">
+        <button
+          type="button"
+          onClick={dropMemory}
+          disabled={!text.trim() || !!droppingStar}
+          className="btn-glow w-full rounded-xl py-2.5 text-sm font-semibold text-white bg-gradient-to-r from-purple-600 via-fuchsia-600 to-purple-600 hover:from-purple-500 hover:via-fuchsia-500 hover:to-purple-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <span className="inline-flex items-center gap-2 justify-center">
+            <Sparkles size={16} /> Drop Into Jar
+          </span>
+        </button>
+
+        <div className="text-center text-xs text-slate-100 text-safe leading-relaxed">
+          {memories.length}{" "}
+          {memories.length === 1 ? "memory / note" : "memories / notes"} in the
+          jar
+          {othersMemories.length > 0 && (
+            <span className="text-slate-300/80">
+              {" "}
+              · {othersMemories.length} by real people (others)
+            </span>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
 function App() {
   const [userMemories, setUserMemories] = useState([]);
   const [mineIdsVersion, setMineIdsVersion] = useState(0);
@@ -1158,6 +1412,7 @@ function App() {
   const [author, setAuthor] = useState("");
   const [droppingStar, setDroppingStar] = useState(null); // animation of newly dropped star
   const [revealed, setRevealed] = useState(null); // memory being revealed
+  const [memoryFormOpen, setMemoryFormOpen] = useState(false);
   const jarMemories = useMemo(
     () => (revealed ? memories.filter((m) => m.id !== revealed.id) : memories),
     [memories, revealed?.id],
@@ -1166,7 +1421,12 @@ function App() {
   const shakeRef = useRef(0);
   const wakePhysicsRef = useRef(() => {});
   const jarRef = useRef(null);
-  const dragState = useRef({ dragging: false, lastX: 0, lastY: 0 });
+  const dragState = useRef({
+    dragging: false,
+    lastX: 0,
+    lastY: 0,
+    moved: false,
+  });
   const revealTimeoutRef = useRef(null);
   const revealedRef = useRef(null);
   revealedRef.current = revealed;
@@ -1188,7 +1448,9 @@ function App() {
         const body = await res.json();
         if (cancelled) return;
         if (Array.isArray(body?.memories) && body.supabase) {
-          const normalized = body.memories.map((m) => ({
+          const normalized = body.memories
+            .filter((m) => !m.archived)
+            .map((m) => ({
             id: m.id,
             text: m.text,
             type: m.type || "secret",
@@ -1254,6 +1516,7 @@ function App() {
     bumpMineIds();
     setText("");
     setAuthor("");
+    setMemoryFormOpen(false);
 
     // After the drop animation, add to jar
     setTimeout(() => {
@@ -1316,11 +1579,14 @@ function App() {
       let list = [];
       if (pool === "starter") list = STARTER_MEMORIES;
       else if (pool === "system") list = SYSTEM_MEMORIES;
+      else if (pool === "people") list = userMemories;
+      else if (pool === "builtin") list = BUILTIN_MEMORIES;
       else if (pool === "others") list = othersMemories;
       else if (pool === "yours") list = myMemories;
       else list = memories;
       if (list.length === 0) return;
-      const picked = list[Math.floor(Math.random() * list.length)];
+      const picked = pickShuffledFromPool(list);
+      if (!picked) return;
       if (revealTimeoutRef.current) clearTimeout(revealTimeoutRef.current);
       setRevealed({ ...picked, _instant: instant });
       revealTimeoutRef.current = setTimeout(() => {
@@ -1340,7 +1606,12 @@ function App() {
   }, []);
 
   const onJarPointerDown = (e) => {
-    dragState.current = { dragging: true, lastX: e.clientX, lastY: e.clientY };
+    dragState.current = {
+      dragging: true,
+      lastX: e.clientX,
+      lastY: e.clientY,
+      moved: false,
+    };
     shakeJar(4);
   };
   const onJarPointerMove = (e) => {
@@ -1349,17 +1620,18 @@ function App() {
     const dy = e.clientY - dragState.current.lastY;
     dragState.current.lastX = e.clientX;
     dragState.current.lastY = e.clientY;
+    if (Math.abs(dx) + Math.abs(dy) > 6) dragState.current.moved = true;
     const mag = Math.min(20, Math.abs(dx) + Math.abs(dy));
     if (mag > 3) shakeJar(mag * 0.6);
   };
   const onJarPointerUp = () => {
-    if (dragState.current.dragging) {
-      dragState.current.dragging = false;
-      // if there was a big shake, pick a random star
-      if ((shakeRef.current || 0) > 4) {
-        setTimeout(() => pickRandomFrom("any", { instant: false }), 900);
-      }
-    }
+    dragState.current.dragging = false;
+  };
+
+  const onJarClick = () => {
+    if (dragState.current.moved) return;
+    shakeJar(3);
+    pickRandomFrom("any", { instant: true });
   };
 
   return (
@@ -1383,198 +1655,128 @@ function App() {
       />
 
       {/* Content */}
-      <div className="relative z-10 flex flex-col items-center min-h-screen px-4 py-6 md:py-8 overflow-y-auto">
-        {/* Header */}
-        <motion.header
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 1.2, ease: "easeOut" }}
-          className="text-center mb-4 px-8 py-5 rounded-2xl bg-black/50 backdrop-blur-md border border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.5)] max-w-2xl w-full"
-        >
-          <h1 className="text-4xl md:text-5xl font-bold tracking-tight">
-            <span className="inline-block text-[#f3e8ff] title-glow">
-              &#x2B50; Digital Memory Jar
-            </span>
-          </h1>
-          <p className="text-slate-100 mt-2 italic text-sm md:text-base text-safe-strong">
-            &ldquo;Leave a little piece of your heart among the stars.&rdquo;
-          </p>
-        </motion.header>
+      <div className="relative z-10 flex flex-col min-h-[100dvh]">
+        <div className="flex-shrink-0 px-3 sm:px-4 pt-4 sm:pt-6 lg:pt-8">
+          {/* Header */}
+          <motion.header
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 1.2, ease: "easeOut" }}
+            className="text-center mx-auto px-4 py-2.5 sm:py-3 rounded-xl bg-black/50 backdrop-blur-md border border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.5)] max-w-lg w-full"
+          >
+            <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold tracking-tight">
+              <span className="inline-block text-[#f3e8ff] title-glow">
+                &#x2B50; Digital Memory Jar
+              </span>
+            </h1>
+            <p className="text-slate-100 mt-1 italic text-[11px] sm:text-xs text-safe-strong">
+              Leave a little piece of your heart among the stars.
+            </p>
+            <p className="text-slate-100 mt-1 italic text-[11px] sm:text-xs text-safe-strong">
+              Tap the jar to draw a random memory / note
+            </p>
+          </motion.header>
+        </div>
 
-        <div className="flex flex-col lg:flex-row items-center lg:items-stretch justify-center gap-8 lg:gap-12 w-full max-w-6xl">
-          {/* Left: Input — stretched to match jar column height on lg+ */}
+        {/* Jar + form — jar centered in remaining space */}
+        <main className="flex-1 flex flex-col lg:flex-row items-center justify-center gap-6 lg:gap-10 w-full max-w-5xl mx-auto px-3 sm:px-4 pb-24">
+          {/* Desktop: memory form */}
           <motion.div
             initial={{ opacity: 0, x: -20 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 1, delay: 0.3 }}
-            className="w-full max-w-md order-2 lg:order-1 flex flex-col lg:h-[540px]"
+            className="hidden lg:block flex-shrink-0 w-[320px] self-center"
           >
-            <div className="rounded-2xl p-4 border border-white/15 bg-black/40 backdrop-blur-md shadow-2xl flex flex-col flex-1 h-full">
-              <label className="text-slate-100 text-sm mb-1.5 block text-safe">
-                Your memory
-              </label>
-              <textarea
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                placeholder="Write a memory..."
-                rows={3}
-                className="w-full rounded-xl bg-black/40 border border-white/15 focus:border-purple-400/60 focus:ring-2 focus:ring-purple-400/30 outline-none px-3 py-2.5 text-slate-100 placeholder:text-slate-400/60 resize-none transition"
+            <div className="rounded-2xl p-4 border border-white/15 bg-black/45 backdrop-blur-md shadow-2xl">
+              <MemoryFormFields
+                text={text}
+                setText={setText}
+                author={author}
+                setAuthor={setAuthor}
+                type={type}
+                setType={setType}
+                dropMemory={dropMemory}
+                droppingStar={droppingStar}
+                memories={memories}
+                othersMemories={othersMemories}
               />
-
-              <input
-                value={author}
-                onChange={(e) => setAuthor(e.target.value)}
-                placeholder="Name (optional)"
-                maxLength={80}
-                className="mt-2 w-full rounded-xl bg-black/40 border border-white/15 focus:border-pink-400/60 focus:ring-2 focus:ring-pink-400/30 outline-none px-3 py-2 text-slate-100 placeholder:text-slate-400/60"
-              />
-
-              <div className="mt-2">
-                <div className="text-slate-200 text-xs mb-1.5 text-safe">
-                  Add emoji to your note (optional)
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {EMOJI_PICKS.map((e) => (
-                    <button
-                      key={e}
-                      type="button"
-                      onClick={() =>
-                        setText((prev) => toggleEmojiInNote(prev, e))
-                      }
-                      className={`text-lg leading-none w-9 h-9 rounded-lg border transition-all ${noteStartsWithEmoji(text, e) ? "border-white/40 bg-white/15 scale-110" : "border-white/10 bg-black/30 hover:border-white/25 hover:bg-white/10"}`}
-                      title={
-                        noteStartsWithEmoji(text, e)
-                          ? "Remove from note"
-                          : "Add to note"
-                      }
-                    >
-                      {e}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="mt-2">
-                <div className="text-slate-200 text-xs mb-1.5 text-safe">
-                  Type of memory
-                </div>
-                <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
-                  {MEMORY_TYPES.map((t) => {
-                    const Icon = t.icon;
-                    const active = t.id === type;
-                    return (
-                      <button
-                        key={t.id}
-                        onClick={() => setType(t.id)}
-                        className={`group flex flex-col items-center justify-center rounded-xl border py-2 transition-all ${active ? "border-white/30 bg-white/10 scale-[1.03]" : "border-white/5 hover:border-white/15 bg-white/5"}`}
-                        style={
-                          active
-                            ? {
-                                boxShadow: `0 0 20px ${t.glow}, inset 0 0 10px ${t.glow}`,
-                              }
-                            : {}
-                        }
-                        title={t.label}
-                      >
-                        <Icon
-                          size={15}
-                          style={{
-                            color: t.color,
-                            filter: `drop-shadow(0 0 6px ${t.glow})`,
-                          }}
-                        />
-                        <span className="text-[9px] mt-0.5 text-slate-200/90">
-                          {t.label}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="mt-auto pt-3 space-y-2">
-                <button
-                  onClick={dropMemory}
-                  disabled={!text.trim() || !!droppingStar}
-                  className="btn-glow w-full rounded-xl py-3 font-semibold text-white bg-gradient-to-r from-purple-600 via-fuchsia-600 to-purple-600 hover:from-purple-500 hover:via-fuchsia-500 hover:to-purple-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed relative overflow-hidden"
-                >
-                  <span className="relative z-10 inline-flex items-center gap-2 justify-center">
-                    <Sparkles size={18} /> Drop Into Jar
-                  </span>
-                </button>
-
-                <div className="text-center text-xs text-slate-100 text-safe">
-                  {memories.length}{" "}
-                  {memories.length === 1 ? "memory" : "memories"} in the jar
-                  {othersMemories.length > 0 && (
-                    <span className="text-slate-300/80">
-                      {" "}
-                      · {othersMemories.length} by others
-                    </span>
-                  )}
-                  {memories.length > 0 && (
-                    <div className="flex flex-wrap justify-center gap-x-2 gap-y-1 mt-1.5">
-                      <button
-                        type="button"
-                        onClick={() => pickRandomFrom("system")}
-                        className="underline decoration-dotted hover:text-amber-200 disabled:opacity-40 disabled:no-underline"
-                        disabled={!!revealed}
-                      >
-                        draw system
-                      </button>
-                      <span className="text-slate-500">·</span>
-                      <button
-                        type="button"
-                        onClick={() => pickRandomFrom("others")}
-                        className="underline decoration-dotted hover:text-amber-200 disabled:opacity-40 disabled:no-underline"
-                        disabled={!!revealed || othersMemories.length === 0}
-                        title={
-                          othersMemories.length === 0
-                            ? "No notes from others yet"
-                            : undefined
-                        }
-                      >
-                        draw others
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
             </div>
           </motion.div>
 
-          {/* Right: Jar — same height as form card */}
+          {/* Jar */}
           <motion.div
             initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 1.2, delay: 0.4 }}
-            className="relative order-1 lg:order-2 flex-shrink-0 lg:h-[540px]"
-            style={{ width: JAR_W, height: JAR_H + 80 }}
+            className="relative flex-shrink-0 flex items-center justify-center"
           >
-            <JarSVG
-              ref={jarRef}
-              positions={positions}
-              memories={jarMemories}
-              onPointerDown={onJarPointerDown}
-              onPointerMove={onJarPointerMove}
-              onPointerUp={onJarPointerUp}
-              onPointerLeave={onJarPointerUp}
-              onClick={() => {
-                shakeJar(6);
-                setTimeout(
-                  () => pickRandomFrom("any", { instant: false }),
-                  800,
-                );
-              }}
-            />
-            <SparkleTrail points={[]} />
+            <div
+              className="relative origin-center scale-[0.78] sm:scale-90 lg:scale-100"
+              style={{ width: JAR_W, height: JAR_H + 80 }}
+            >
+              <JarSVG
+                ref={jarRef}
+                positions={positions}
+                memories={jarMemories}
+                onPointerDown={onJarPointerDown}
+                onPointerMove={onJarPointerMove}
+                onPointerUp={onJarPointerUp}
+                onPointerLeave={onJarPointerUp}
+                onClick={onJarClick}
+              />
+              <SparkleTrail points={[]} />
+            </div>
           </motion.div>
-        </div>
+        </main>
 
-        <p className="text-center text-[11px] text-slate-100 mt-3 text-safe">
-          Tip: click or drag the jar to shake it &#x2728;
-        </p>
+        {/* Footer — admin left, write button right (mobile) */}
+        <footer className="fixed bottom-0 inset-x-0 z-30 bg-black/65 backdrop-blur-lg border-t border-white/10 shadow-[0_-8px_32px_rgba(0,0,0,0.45)]">
+          <div className="flex items-center justify-between gap-3 px-4 py-3 sm:py-3.5 max-w-5xl mx-auto w-full pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+            <Link
+              href="/admin"
+              className="inline-flex items-center gap-1 text-[10px] sm:text-xs text-slate-400 hover:text-slate-200 transition-colors"
+              aria-label="Admin access"
+            >
+              <Lock size={12} />
+              Admin
+            </Link>
+            <button
+              type="button"
+              onClick={() => setMemoryFormOpen(true)}
+              className="lg:hidden flex-shrink-0 flex items-center justify-center w-11 h-11 rounded-full bg-gradient-to-br from-purple-600 to-fuchsia-600 text-white shadow-[0_2px_16px_rgba(168,85,247,0.5)] border border-white/25 active:scale-95 transition-transform"
+              aria-label="Write a memory or note"
+            >
+              <PenLine size={20} strokeWidth={2.25} />
+            </button>
+          </div>
+        </footer>
       </div>
+
+      <Sheet open={memoryFormOpen} onOpenChange={setMemoryFormOpen}>
+        <SheetContent
+          side="bottom"
+          className="lg:hidden rounded-t-2xl border-white/15 bg-indigo-950/95 backdrop-blur-xl text-white max-h-[82vh] overflow-y-auto px-4 pb-6 pt-2"
+        >
+          <SheetHeader className="text-left mb-2">
+            <SheetTitle className="text-white text-base font-semibold">
+              Write a memory / note
+            </SheetTitle>
+          </SheetHeader>
+          <MemoryFormFields
+            compact
+            text={text}
+            setText={setText}
+            author={author}
+            setAuthor={setAuthor}
+            type={type}
+            setType={setType}
+            dropMemory={dropMemory}
+            droppingStar={droppingStar}
+            memories={memories}
+            othersMemories={othersMemories}
+          />
+        </SheetContent>
+      </Sheet>
 
       {/* Sparkles overlay */}
       <div className="fixed inset-0 pointer-events-none z-40">
@@ -1775,7 +1977,7 @@ const JarSVG = forwardRef(function JarSVG(
               className="text-slate-300/80 italic text-sm max-w-[220px] leading-relaxed"
               style={{ textShadow: "0 0 12px rgba(200,180,255,0.5)" }}
             >
-              &ldquo;The night is waiting for its first memory.&rdquo;
+              The night is waiting for its first memory.
             </div>
           </div>
         </div>
@@ -1916,7 +2118,7 @@ function RevealCard({ memory, onClose, jarRef, instant = false }) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center touch-manipulation cursor-pointer"
+      className="fixed inset-0 z-50 flex items-center justify-center touch-manipulation cursor-pointer px-4 sm:px-6"
       onClick={onClose}
       role="dialog"
       aria-modal="true"
@@ -1972,7 +2174,7 @@ function RevealCard({ memory, onClose, jarRef, instant = false }) {
           duration: phase === "folding" ? 1.2 : 1,
           ease: [0.4, 0, 0.2, 1],
         }}
-        className="relative z-10 pointer-events-none"
+        className="relative z-10 pointer-events-none w-full max-w-md"
       >
         {phase === "floating" && (
           <motion.div
@@ -1993,59 +2195,54 @@ function RevealCard({ memory, onClose, jarRef, instant = false }) {
           </motion.div>
         )}
         {phase === "shown" && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.6 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0 }}
-            className="relative rounded-3xl px-8 py-7 max-w-md min-w-[300px] border border-white/20 bg-gradient-to-b from-white/15 to-white/5 backdrop-blur-xl shadow-2xl"
-            style={{
-              boxShadow: `0 0 40px ${meta.color}66, 0 0 80px ${meta.color}44, inset 0 0 24px rgba(255,255,255,0.08)`,
-            }}
-          >
-            <div
-              className="flex items-center gap-2 text-xs uppercase tracking-widest mb-3"
-              style={{ color: meta.color }}
-            >
-              <StarIcon size={12} /> {meta.label} memory
-              {memory.isSample && (
-                <span className="normal-case tracking-normal text-amber-200/90 font-normal ml-1">
-                  · {builtinLabel(memory)}
-                </span>
-              )}
-            </div>
-            {memory.isSample && (
-              <div className="mb-3 rounded-lg bg-amber-500/15 border border-amber-400/25 px-3 py-2 text-xs text-amber-100/95 leading-relaxed">
-                {builtinRevealMessage(memory)}
-              </div>
-            )}
-            <p className="text-slate-50 text-lg leading-relaxed whitespace-pre-wrap">
-              &ldquo;{memory.text}&rdquo;
+          <>
+            <p className="text-center text-xs uppercase tracking-widest text-slate-200/90 mb-3 text-safe pointer-events-none">
+              {memorySourceLabel(memory)}
             </p>
-            {memory.author && !memory.isSample && (
-              <div className="mt-4 text-right text-sm text-slate-300/80 italic">
-                &mdash; {memory.author}
-              </div>
-            )}
-            {!memory.isSample && (
-              <div className="mt-3 text-[10px] text-slate-400">
-                {new Date(memory.createdAt).toLocaleString()}
-              </div>
-            )}
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onClose();
+            <motion.div
+              initial={{ opacity: 0, scale: 0.6 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0 }}
+              className="relative rounded-2xl sm:rounded-3xl px-4 py-5 sm:px-8 sm:py-7 w-full border border-white/20 bg-gradient-to-b from-white/15 to-white/5 backdrop-blur-xl shadow-2xl"
+              style={{
+                boxShadow: `0 0 40px ${meta.color}66, 0 0 80px ${meta.color}44, inset 0 0 24px rgba(255,255,255,0.08)`,
               }}
-              className="mt-5 w-full pointer-events-auto rounded-xl py-2.5 text-sm font-medium text-slate-200 bg-white/10 hover:bg-white/20 border border-white/20 transition-colors"
             >
-              Close
-            </button>
-            {/* corner sparkles */}
-            <div className="absolute -top-2 -right-2">
-              <PaperStar color={meta.color} size={20} />
-            </div>
-          </motion.div>
+              <div
+                className="flex items-center gap-2 text-xs uppercase tracking-widest mb-3"
+                style={{ color: meta.color }}
+              >
+                <StarIcon size={12} /> {meta.label} memory / note
+              </div>
+              <p className="text-slate-50 text-base sm:text-lg leading-relaxed whitespace-pre-wrap break-words">
+                {memory.text}
+              </p>
+              {memory.author && !memory.isSample && (
+                <div className="mt-4 text-right text-sm text-slate-300/80 italic">
+                  &mdash; {memory.author}
+                </div>
+              )}
+              {!memory.isSample && (
+                <div className="mt-3 text-[10px] text-slate-400">
+                  {new Date(memory.createdAt).toLocaleString()}
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onClose();
+                }}
+                className="mt-5 w-full pointer-events-auto rounded-xl py-2.5 text-sm font-medium text-slate-200 bg-white/10 hover:bg-white/20 border border-white/20 transition-colors"
+              >
+                Close
+              </button>
+              {/* corner sparkles */}
+              <div className="absolute -top-2 -right-2">
+                <PaperStar color={meta.color} size={20} />
+              </div>
+            </motion.div>
+          </>
         )}
         {phase === "folding" && <PaperStar color={meta.color} size={40} />}
       </motion.div>
