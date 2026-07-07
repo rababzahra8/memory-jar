@@ -1,11 +1,19 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Archive, ArchiveRestore, Lock, LogOut, Trash2 } from "lucide-react";
 
 const inputClass =
   "w-full rounded-xl bg-[#0c1a33] border border-white/20 px-3 py-2.5 text-sm text-slate-50 placeholder:text-slate-500 outline-none focus:border-purple-400/60 focus:ring-2 focus:ring-purple-400/20 transition [color-scheme:dark]";
+
+function sortNewestFirst(list) {
+  return [...list].sort((a, b) => {
+    const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
+    const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
+    return tb - ta;
+  });
+}
 
 export default function AdminPage() {
   const [checking, setChecking] = useState(true);
@@ -17,6 +25,11 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(false);
   const [memories, setMemories] = useState([]);
   const [actionId, setActionId] = useState(null);
+
+  const sortedMemories = useMemo(
+    () => sortNewestFirst(memories),
+    [memories],
+  );
 
   const loadSession = useCallback(async () => {
     try {
@@ -35,7 +48,7 @@ export default function AdminPage() {
     const res = await fetch("/api/admin/memories");
     if (!res.ok) throw new Error("Failed to load notes");
     const body = await res.json();
-    setMemories(body.memories || []);
+    setMemories(sortNewestFirst(body.memories || []));
   }, []);
 
   useEffect(() => {
@@ -91,7 +104,9 @@ export default function AdminPage() {
       if (!res.ok) return;
       const body = await res.json();
       setMemories((prev) =>
-        prev.map((m) => (m.id === id ? body.memory : m)),
+        sortNewestFirst(
+          prev.map((m) => (m.id === id ? body.memory : m)),
+        ),
       );
     } finally {
       setActionId(null);
@@ -112,14 +127,14 @@ export default function AdminPage() {
 
   if (checking) {
     return (
-      <div className="min-h-[100dvh] bg-[#0a1630] text-slate-200 flex items-center justify-center px-4">
+      <div className="h-[100dvh] bg-[#0a1630] text-slate-200 flex items-center justify-center px-4">
         <p className="text-sm text-slate-400">Loading…</p>
       </div>
     );
   }
 
   return (
-    <div className="relative min-h-[100dvh] bg-[#0a1630] text-slate-100 overflow-x-hidden">
+    <div className="relative flex h-[100dvh] max-h-[100dvh] flex-col overflow-hidden bg-[#0a1630] text-slate-100">
       <div
         className="pointer-events-none fixed inset-0"
         style={{
@@ -128,41 +143,48 @@ export default function AdminPage() {
         }}
       />
 
-      <header className="relative z-10 border-b border-white/10 bg-black/40 backdrop-blur-md">
-        <div className="mx-auto flex max-w-3xl items-center justify-between gap-3 px-4 py-3 sm:py-4">
-          <div className="min-w-0">
-            <h1 className="text-base sm:text-lg font-semibold flex items-center gap-2">
-              <Lock size={16} className="text-purple-300 flex-shrink-0" />
-              <span className="truncate">Admin</span>
-            </h1>
-            <p className="text-[11px] sm:text-xs text-slate-400 mt-0.5 truncate">
-              Manage all memory / notes in the jar
-            </p>
+      {/* Sticky top — header + toolbar */}
+      <div className="sticky top-0 z-20 flex-shrink-0 border-b border-white/10 bg-[#0a1630]/95 backdrop-blur-md">
+        <header>
+          <div className="mx-auto flex max-w-3xl items-center justify-between gap-3 px-4 py-3 sm:py-3.5">
+            <div className="min-w-0">
+              <h1 className="text-base sm:text-lg font-semibold flex items-center gap-2">
+                <Lock size={16} className="text-purple-300 flex-shrink-0" />
+                <span className="truncate">Admin</span>
+              </h1>
+              <p className="text-[11px] sm:text-xs text-slate-400 mt-0.5 truncate">
+                Manage all memory / notes in the jar
+              </p>
+            </div>
+            <Link
+              href="/"
+              className="flex-shrink-0 text-xs text-slate-400 hover:text-slate-200 underline underline-offset-2"
+            >
+              Back to jar
+            </Link>
           </div>
-          <Link
-            href="/"
-            className="flex-shrink-0 text-xs text-slate-400 hover:text-slate-200 underline underline-offset-2"
-          >
-            Back to jar
-          </Link>
-        </div>
-      </header>
+        </header>
 
-      <main
-        className={`relative z-10 mx-auto w-full max-w-3xl px-4 ${
-          authenticated || !adminEnabled
-            ? "py-5 sm:py-8 pb-[max(1.25rem,env(safe-area-inset-bottom))]"
-            : "flex min-h-[calc(100dvh-4.5rem)] sm:min-h-[calc(100dvh-5rem)] items-center justify-center py-6 sm:py-10"
-        }`}
-      >
-        {!adminEnabled ? (
-          <div className="w-full rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-100">
-            Admin login is not configured. Set{" "}
-            <code className="text-amber-50">ADMIN_EMAIL</code> and{" "}
-            <code className="text-amber-50">ADMIN_PASSWORD</code> in{" "}
-            <code className="text-amber-50">.env.local</code>.
+        {authenticated && (
+          <div className="mx-auto flex max-w-3xl items-center justify-between gap-3 border-t border-white/5 px-4 py-2.5">
+            <p className="text-sm text-slate-300">
+              {memories.length} note{memories.length === 1 ? "" : "s"} total
+            </p>
+            <button
+              type="button"
+              onClick={onLogout}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/5 px-3 py-1.5 text-xs text-slate-300 hover:bg-white/10 hover:text-slate-100 transition-colors"
+            >
+              <LogOut size={14} />
+              Sign out
+            </button>
           </div>
-        ) : !authenticated ? (
+        )}
+      </div>
+
+      {/* Body */}
+      {!authenticated && adminEnabled ? (
+        <main className="relative z-10 flex flex-1 items-center justify-center overflow-y-auto px-4 py-6">
           <div className="w-full max-w-sm">
             <form
               onSubmit={onLogin}
@@ -216,29 +238,29 @@ export default function AdminPage() {
               </button>
             </form>
           </div>
-        ) : (
-          <>
-            <div className="flex flex-wrap items-center justify-between gap-3 mb-4 sm:mb-6">
-              <p className="text-sm text-slate-300">
-                {memories.length} note{memories.length === 1 ? "" : "s"} total
-              </p>
-              <button
-                type="button"
-                onClick={onLogout}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/5 px-3 py-1.5 text-xs text-slate-300 hover:bg-white/10 hover:text-slate-100 transition-colors"
-              >
-                <LogOut size={14} />
-                Sign out
-              </button>
-            </div>
-
+        </main>
+      ) : !adminEnabled ? (
+        <main className="relative z-10 flex-1 overflow-y-auto px-4 py-6">
+          <div className="mx-auto max-w-3xl rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-100">
+            Admin login is not configured. Set{" "}
+            <code className="text-amber-50">ADMIN_EMAIL</code> and{" "}
+            <code className="text-amber-50">ADMIN_PASSWORD</code> in{" "}
+            <code className="text-amber-50">.env.local</code>.
+          </div>
+        </main>
+      ) : (
+        <main className="relative z-10 mx-auto w-full max-w-3xl flex-1 min-h-0 overflow-hidden px-4">
+          <div
+            className="h-full overflow-y-auto overscroll-y-contain py-4 pb-[max(1.25rem,env(safe-area-inset-bottom))]"
+            style={{ WebkitOverflowScrolling: "touch" }}
+          >
             <div className="space-y-3 sm:space-y-4">
-              {memories.length === 0 ? (
+              {sortedMemories.length === 0 ? (
                 <p className="text-sm text-slate-400 italic text-center py-8">
                   No notes yet.
                 </p>
               ) : (
-                memories.map((m) => (
+                sortedMemories.map((m) => (
                   <article
                     key={m.id}
                     className={`rounded-xl border p-3.5 sm:p-4 ${
@@ -303,9 +325,9 @@ export default function AdminPage() {
                 ))
               )}
             </div>
-          </>
-        )}
-      </main>
+          </div>
+        </main>
+      )}
     </div>
   );
 }
